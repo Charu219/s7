@@ -2,11 +2,16 @@ import axios from 'axios';
 
 // const api = axios.create({
 //   baseURL: '/api',
+//   withCredentials: false,
+//   headers: { 'Content-Type': 'application/json' },
+// });
+
 const api = axios.create({
-baseURL: `${import.meta.env.VITE_API_URL}/api`,
+  baseURL: import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api',
   withCredentials: false,
   headers: { 'Content-Type': 'application/json' },
 });
+
 
 // Request interceptor — inject token
 api.interceptors.request.use(

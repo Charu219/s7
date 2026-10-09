@@ -48,6 +48,11 @@ export default function RegisterPage() {
 
   const role = watch('role');
   const isDonor = role === 'DONOR';
+  // Recipients only have 2 steps; donors have 3
+  const totalSteps = isDonor ? 3 : 2;
+
+  // If user switches to RECIPIENT while on step 3, go back to step 2
+  if (step > totalSteps) setStep(totalSteps);
 
   const nextStep = async () => {
     const fields = step === 1
@@ -93,9 +98,9 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        {/* Stepper */}
+        {/* Stepper — 2 steps for recipients, 3 for donors */}
         <div className="flex items-center" style={{ marginBottom: '2rem', gap: 0 }}>
-          {[1, 2, 3].map((n) => (
+          {Array.from({ length: totalSteps }, (_, i) => i + 1).map((n) => (
             <div key={n} className="step" style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
               <div className={`step-circle ${n === step ? 'active' : n < step ? 'done' : ''}`}
                 style={{
@@ -108,7 +113,7 @@ export default function RegisterPage() {
                   transition: 'all 0.3s',
                 }}
               >{n}</div>
-              {n < 3 && (
+              {n < totalSteps && (
                 <div style={{
                   flex: 1, height: '2px',
                   background: n < step ? 'var(--accent-500)' : 'var(--border)',
@@ -232,7 +237,7 @@ export default function RegisterPage() {
                 </Button>
               ) : <div />}
 
-              {step < 3 ? (
+              {step < totalSteps ? (
                 <Button variant="primary" onClick={nextStep} icon={<ArrowRight size={16} />}>
                   Continue
                 </Button>

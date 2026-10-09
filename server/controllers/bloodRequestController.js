@@ -199,6 +199,13 @@ const getBloodRequests = async (req, res, next) => {
       });
     }
 
+    // ── Pre-compute donor blood-group compatibility for _canRespond ─────────
+    const { BLOOD_COMPATIBILITY: BC } = require('../services/eligibilityService');
+    const donorIsEligible = currentDonor?.donorStatus === 'ELIGIBLE';
+    const now2 = new Date();
+    const donorPassesCooldown = !currentDonor?.nextEligibleDonationDate ||
+      currentDonor.nextEligibleDonationDate <= now2;
+
     // Merge extra data into result objects
     const enriched = requests.map((r) => {
       const plain = r.toObject();
@@ -224,8 +231,17 @@ const getBloodRequests = async (req, res, next) => {
         delete plain.recipientId.address;
       }
 
-      if (req.user.role === 'DONOR') {
-        plain._myResponse = myResponseMap[rid] || null;
+      if (req.user.role === 'DONOR' && currentDonor) {
+        const myResp = myResponseMap[rid] || null;
+        plain._myResponse = myResp;
+
+        // Compute _canRespond server-side so frontend never relies on stale cached donor status
+        const requestIsOpen = ['PENDING', 'SEARCHING'].includes(r.status);
+        const hasNotResponded = !myResp || myResp === 'PENDING';
+        const bloodGroupOk = (BC[r.bloodGroup] || []).includes(currentDonor.bloodGroup);
+        plain._canRespond = donorIsEligible && donorPassesCooldown &&
+          hasNotResponded && requestIsOpen && bloodGroupOk &&
+          currentDonor.availability && !currentDonor.isDeleted;
       }
 
       return plain;
@@ -313,9 +329,20 @@ const respondToBloodRequest = async (req, res, next) => {
     const donor = await Donor.findOne({ userId: req.user._id }).populate('userId');
     if (!donor) return res.status(404).json({ success: false, message: 'Donor profile not found.' });
 
-    // Only ELIGIBLE donors can accept
-    if (response === 'ACCEPTED' && donor.donorStatus !== 'ELIGIBLE') {
-      return res.status(403).json({ success: false, message: 'Only eligible donors can accept blood requests.' });
+    // Must not be soft-deleted
+    if (donor.isDeleted) {
+      return res.status(403).json({ success: false, message: 'Donor account is inactive.' });
+    }
+
+    // Only ELIGIBLE donors can respond at all
+    if (donor.donorStatus !== 'ELIGIBLE') {
+      return res.status(403).json({ success: false, message: 'Your donor status must be Eligible to respond to blood requests.' });
+    }
+
+    // Check donation cooldown
+    const now = new Date();
+    if (response === 'ACCEPTED' && donor.nextEligibleDonationDate && donor.nextEligibleDonationDate > now) {
+      return res.status(403).json({ success: false, message: 'You are within the mandatory donation cooldown period and cannot accept new requests yet.' });
     }
 
     const request = await BloodRequest.findById(req.params.id);
@@ -323,6 +350,24 @@ const respondToBloodRequest = async (req, res, next) => {
 
     if (!['SEARCHING', 'PENDING'].includes(request.status)) {
       return res.status(400).json({ success: false, message: 'This request is no longer accepting responses.' });
+    }
+
+    // Verify blood group compatibility
+    const { isCompatible } = require('../services/eligibilityService');
+    if (!isCompatible(donor.bloodGroup, request.bloodGroup)) {
+      return res.status(403).json({ success: false, message: 'Your blood group is not compatible with this request.' });
+    }
+
+    // If donor was not in notifiedDonors, add them now (they found it via compatible blood group query)
+    const alreadyNotified = request.notifiedDonors.some(
+      (id) => id.toString() === donor._id.toString()
+    );
+    if (!alreadyNotified) {
+      request.notifiedDonors.push(donor._id);
+      if (!request.matchedDonors.some((id) => id.toString() === donor._id.toString())) {
+        request.matchedDonors.push(donor._id);
+      }
+      await request.save();
     }
 
     const donorResponse = await DonorResponse.findOneAndUpdate(
@@ -337,8 +382,8 @@ const respondToBloodRequest = async (req, res, next) => {
     );
 
     if (response === 'ACCEPTED') {
-      // Update request status
-      request.status = 'CONTACT_SHARED';
+      // Update request: DONOR_ACCEPTED first, then CONTACT_SHARED after contact record created
+      request.status = 'DONOR_ACCEPTED';
       request.acceptedDonor = donor._id;
       await request.save();
 
@@ -373,6 +418,10 @@ const respondToBloodRequest = async (req, res, next) => {
 
       donorResponse.contactShared = true;
       await donorResponse.save();
+
+      // Now that ContactShare is created, advance status to CONTACT_SHARED
+      request.status = 'CONTACT_SHARED';
+      await request.save();
 
       const appClientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
       // Notify recipient (with donor contact info in emailData)

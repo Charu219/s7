@@ -148,7 +148,8 @@ function RequestCard({ req, donor, onAccept, onDecline }) {
   // A donor can respond if they haven't explicitly accepted/declined yet
   // (null = never notified, 'PENDING' = notified but no action yet)
   const hasNotResponded = !myResponse || myResponse === 'PENDING';
-  const canRespond = donor?.donorStatus === 'ELIGIBLE' && hasNotResponded && isActive;
+  // Use server-computed _canRespond (based on LIVE DB donor status, not stale localStorage cache)
+  const canRespond = !!req._canRespond;
 
   return (
     <motion.div
@@ -367,14 +368,16 @@ function RequestCard({ req, donor, onAccept, onDecline }) {
 
 
       {/* ── Donor not yet eligible ── */}
-      {donor?.donorStatus !== 'ELIGIBLE' && hasNotResponded && (
+      {!canRespond && hasNotResponded && isActive && !req._canRespond && (
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '0.25rem' }}>
-          Your status must be Eligible to respond to requests
+          {donor?.donorStatus !== 'ELIGIBLE'
+            ? `Your status must be Eligible to respond (current: ${donor?.donorStatus || 'Unknown'})`
+            : 'You are not currently eligible to respond to this request'}
         </div>
       )}
 
       {/* ── Request already accepted by someone else ── */}
-      {donor?.donorStatus === 'ELIGIBLE' && hasNotResponded && !isActive && (
+      {!canRespond && hasNotResponded && !isActive && (
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '0.25rem' }}>
           This request has already been fulfilled
         </div>
@@ -455,7 +458,7 @@ function DeclineConfirmModal({ isOpen, req, onClose, onConfirm, loading }) {
 
 /* ── Main page ───────────────────────────────────────────────── */
 export default function BloodRequestsPage() {
-  const { donor } = useAuth();
+  const { donor, refreshDonor } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -476,7 +479,11 @@ export default function BloodRequestsPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, []);
+  useEffect(() => {
+    // Always refresh donor profile from server on mount so eligibility is never stale
+    refreshDonor();
+    fetchRequests();
+  }, []);
 
   const handleAccept = async () => {
     if (!acceptModal) return;

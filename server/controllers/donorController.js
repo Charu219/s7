@@ -277,7 +277,11 @@ const submitQuestionnaire = async (req, res, next) => {
     donor.preferredLocation = preferredDonationLocation;
     donor.preferredDays = availableDays || [];
     donor.preferredTime = preferredTime;
-    donor.donorStatus = 'PENDING'; // Admin reviews before setting to ELIGIBLE
+    // Apply screening result directly — admin can override at any time
+    // Previously hardcoded to 'PENDING'; now auto-approved when screening passes
+    donor.donorStatus   = screening.status;   // 'ELIGIBLE' | 'HOLD' | 'MEDICAL_REVIEW' | 'NOT_ELIGIBLE'
+    donor.statusReason  = screening.statusReason;
+    donor.statusChangedAt = new Date();
     donor.initialData = {
       height, weight, currentIllness, diabetes, heartConditions, kidneyConditions,
       currentMedications, recentSurgery, recentDentalProcedure, recentTattoo, recentPiercing,
@@ -293,8 +297,12 @@ const submitQuestionnaire = async (req, res, next) => {
 
     await createNotification({
       userId: req.user._id,
-      title: 'Health Questionnaire Submitted',
-      message: 'Your initial health questionnaire has been submitted. An admin will review your application shortly.',
+      title: screening.status === 'ELIGIBLE'
+        ? '🎉 You are now Eligible to Donate!'
+        : 'Health Questionnaire Submitted',
+      message: screening.status === 'ELIGIBLE'
+        ? 'Your health questionnaire has been reviewed. You are now ELIGIBLE to respond to blood requests!'
+        : `Your health questionnaire has been submitted. Current status: ${screening.status}. ${screening.statusReason || ''}`,
       type: 'QUESTIONNAIRE_REMINDER',
       emailData: {
         status: screening.status,
