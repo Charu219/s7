@@ -13,12 +13,33 @@ import { Button } from '../../components/ui/Button';
 
 const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
 
+// ── Validation patterns (must mirror backend authRoutes.js) ──────────────────
+const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
+const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
+const STRONG_PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])[A-Za-z\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]{8,}$/;
+
+const PASSWORD_HINT =
+  'Min. 8 characters · 1 uppercase · 1 lowercase · 1 number · 1 special character (e.g. !@#$)';
+
 const schema = z.object({
   role: z.enum(['DONOR', 'RECIPIENT']),
   name: z.string().min(2, 'Full name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email'),
-  phone: z.string().min(7, 'Please enter a valid phone number'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z
+    .string()
+    .min(1, 'Email address is required.')
+    .regex(GMAIL_REGEX, 'Please enter a valid Gmail address ending with @gmail.com.'),
+  phone: z
+    .string()
+    .min(1, 'Phone number is required.')
+    .regex(INDIAN_PHONE_REGEX, 'Please enter a valid 10-digit Indian mobile number.'),
+  password: z
+    .string()
+    .min(1, 'Password is required.')
+    .regex(
+      STRONG_PASSWORD_REGEX,
+      'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.',
+    ),
   confirmPassword: z.string(),
   bloodGroup: z.string().optional(),
   dateOfBirth: z.string().optional(),
@@ -162,8 +183,24 @@ export default function RegisterPage() {
                   {errors.role && <span className="form-error">{errors.role.message}</span>}
 
                   <Input label="Full Name" placeholder="Jane Smith" icon={<User size={16} />} error={errors.name?.message} {...register('name')} />
-                  <Input label="Email Address" type="email" placeholder="you@example.com" icon={<Mail size={16} />} error={errors.email?.message} {...register('email')} />
-                  <Input label="Phone Number" type="tel" placeholder="+91 98765 43210" icon={<Phone size={16} />} error={errors.phone?.message} {...register('phone')} />
+                  <Input
+                    label="Email Address"
+                    type="email"
+                    placeholder="yourname@gmail.com"
+                    icon={<Mail size={16} />}
+                    error={errors.email?.message}
+                    hint="Only Gmail addresses (@gmail.com) are accepted."
+                    {...register('email')}
+                  />
+                  <Input
+                    label="Phone Number"
+                    type="tel"
+                    placeholder="e.g. 9876543210"
+                    icon={<Phone size={16} />}
+                    error={errors.phone?.message}
+                    hint="10-digit Indian mobile number starting with 6, 7, 8, or 9."
+                    {...register('phone')}
+                  />
                 </motion.div>
               )}
 
@@ -175,16 +212,20 @@ export default function RegisterPage() {
                 >
                   <h3>Set Your Password</h3>
                   <Input
-                    label="Password" type={showPassword ? 'text' : 'password'} placeholder="Min. 8 characters"
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min. 8 characters"
                     icon={<Lock size={16} />}
                     iconRight={showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     onIconRightClick={() => setShowPassword((v) => !v)}
                     error={errors.password?.message}
-                    hint="At least 8 characters"
+                    hint={PASSWORD_HINT}
                     {...register('password')}
                   />
                   <Input
-                    label="Confirm Password" type={showPassword ? 'text' : 'password'} placeholder="Repeat your password"
+                    label="Confirm Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Repeat your password"
                     icon={<Lock size={16} />}
                     error={errors.confirmPassword?.message}
                     {...register('confirmPassword')}

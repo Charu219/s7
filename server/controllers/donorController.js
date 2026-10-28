@@ -157,7 +157,7 @@ const updateDonor = async (req, res, next) => {
           relatedModel: 'Donor',
           clickUrl: `${process.env.CLIENT_URL || 'http://localhost:5173'}/donor/dashboard`,
           emailData: {
-            newStatus:    donorStatus,
+            newStatus: donorStatus,
             statusReason: statusReason || '',
           },
         });
@@ -185,8 +185,8 @@ const deleteDonor = async (req, res, next) => {
     if (!donor) return res.status(404).json({ success: false, message: 'Donor not found.' });
 
     // 1. Soft-delete the Donor record so it is excluded from all active-donor queries
-    donor.isDeleted  = true;
-    donor.deletedAt  = new Date();
+    donor.isDeleted = true;
+    donor.deletedAt = new Date();
     donor.donorStatus = 'NOT_ELIGIBLE';
     donor.availability = false;
     await donor.save();
@@ -279,8 +279,8 @@ const submitQuestionnaire = async (req, res, next) => {
     donor.preferredTime = preferredTime;
     // Apply screening result directly — admin can override at any time
     // Previously hardcoded to 'PENDING'; now auto-approved when screening passes
-    donor.donorStatus   = screening.status;   // 'ELIGIBLE' | 'HOLD' | 'MEDICAL_REVIEW' | 'NOT_ELIGIBLE'
-    donor.statusReason  = screening.statusReason;
+    donor.donorStatus = screening.status;   // 'ELIGIBLE' | 'HOLD' | 'MEDICAL_REVIEW' | 'NOT_ELIGIBLE'
+    donor.statusReason = screening.statusReason;
     donor.statusChangedAt = new Date();
     donor.initialData = {
       height, weight, currentIllness, diabetes, heartConditions, kidneyConditions,

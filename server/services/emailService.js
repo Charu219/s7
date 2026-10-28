@@ -3,78 +3,92 @@
 /**
  * HealthBridge Email Service
  *
- * Provides a centralized, reusable layer for sending transactional emails.
- * All email sending is NON-BLOCKING and NON-CRASHING:
- *   - If credentials are missing  → skips silently (logs warning once)
- *   - If SMTP delivery fails      → logs error, does NOT throw
+ * Delivery mechanism: Resend HTTPS API (https://resend.com)
+ * Replaces the previous Gmail SMTP / Nodemailer transport.
  *
- * Every notification that fires createNotification() also calls the
- * corresponding sendXxxEmail() helper defined below.
+ * All email sending is NON-BLOCKING and NON-CRASHING:
+ *   - If RESEND_API_KEY is missing → skips silently (warns once)
+ *   - If Resend API returns error  → logs error, does NOT throw
+ *   - In-app notifications always work regardless of email status
+ *
+ * Required environment variable:
+ *   RESEND_API_KEY  – your Resend API key (set in Render dashboard, never in code)
+ *   EMAIL_FROM      – sender address, e.g. "HealthBridge <no-reply@yourdomain.com>"
+ *                     Use "HealthBridge <onboarding@resend.dev>" for Resend sandbox.
  */
 
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-/* ─────────────────────────── transporter ────────────────────────────────── */
+/* ─────────────────────────── Resend client (lazy singleton) ─────────────── */
 
-let _transporter = null;
-let _transporterWarnedOnce = false;
+let _resend = null;
+let _resendWarnedOnce = false;
 
 /**
- * Lazily creates and caches the Nodemailer transporter.
- * Returns null (and warns once) if credentials are absent.
+ * Lazily creates and caches the Resend client.
+ * Returns null (and warns once) if RESEND_API_KEY is absent.
  */
-function getTransporter() {
-  if (_transporter) return _transporter;
+function getResendClient() {
+  if (_resend) return _resend;
 
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASSWORD;
+  const apiKey = process.env.RESEND_API_KEY;
 
-  if (!user || !pass) {
-    if (!_transporterWarnedOnce) {
+  if (!apiKey) {
+    if (!_resendWarnedOnce) {
       console.warn(
-        '[Email] Service not configured — set EMAIL_USER and EMAIL_PASSWORD in .env.\n' +
-          '   In-app notifications will still work normally.'
+        '[Email] Resend not configured — set RESEND_API_KEY in your environment.\n' +
+        '   In-app notifications will still work normally.'
       );
-      _transporterWarnedOnce = true;
+      _resendWarnedOnce = true;
     }
     return null;
   }
 
-  _transporter = nodemailer.createTransport({
-    service: 'gmail', // swap for another SMTP provider if needed
-    auth: { user, pass },
-  });
-
-  return _transporter;
+  _resend = new Resend(apiKey);
+  return _resend;
 }
 
 /* ─────────────────────────── base sender ────────────────────────────────── */
 
 /**
- * Low-level email sender.  Never throws.
+ * Low-level email sender via Resend API.  Never throws.
  *
  * @param {object} opts
  * @param {string}   opts.to       - Recipient email address
  * @param {string}   opts.subject  - Email subject
  * @param {string}   opts.html     - HTML body
- * @param {string}   [opts.text]   - Plain-text fallback
+ * @param {string}   [opts.text]   - Plain-text fallback (optional)
  */
 const sendEmail = async ({ to, subject, html, text }) => {
   if (!to || typeof to !== 'string' || !to.includes('@')) {
     console.warn(`[Email] Skipped — invalid recipient address: "${to}"`);
-    return;
+    return null;
   }
 
-  const transporter = getTransporter();
-  if (!transporter) return; // credentials not set — skip silently
+  const resend = getResendClient();
+  if (!resend) return null; // API key not set — skip silently
 
-  const from = `HealthBridge <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`;
+  const from = process.env.EMAIL_FROM || 'HealthBridge <onboarding@resend.dev>';
 
   try {
-    const info = await transporter.sendMail({ from, to, subject, html, text });
-    console.log(`[Email] Sent "${subject}" to ${to} (${info.messageId})`);
+    const { data, error } = await resend.emails.send({
+      from,
+      to: [to],
+      subject,
+      html,
+      ...(text ? { text } : {}),
+    });
+
+    if (error) {
+      console.error(`[Email] Resend error sending "${subject}" to ${to}:`, error);
+      return null;
+    }
+
+    console.log(`[Email] Sent "${subject}" to ${to} (id: ${data?.id})`);
+    return data;
   } catch (err) {
     console.error(`[Email] Failed to send "${subject}" to ${to}: ${err.message}`);
+    return null;
   }
 };
 
